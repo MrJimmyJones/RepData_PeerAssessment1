@@ -1,25 +1,182 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "Reproducible Research Project 1"
+author: "Christian Martin"
+date: "2023-12-15"
+output: md_document
 ---
-
 
 ## Loading and preprocessing the data
 
+Loading packages
 
+```{r message=FALSE}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+```
+
+Load data with fread
+
+```{r}
+# load data into dt
+dt <- data.table::fread(unzip("repdata_data_activity.zip"),fill=TRUE)
+
+# Observing data
+head(dt)
+str(dt)
+```
+
+The date variable is a factor, we can ignore the NA Values, it is not necessary to manipulate the data.
 
 ## What is mean total number of steps taken per day?
 
+I group the data by date and calculate the sum of the steps
 
+```{r}
+steps_per_day <- dt %>%
+    group_by(date) %>%
+    summarize(sum_steps = sum(steps),  .groups = 'drop')
+```
+
+A histogram of total number of steps taken per day
+
+```{r histogram1, fig.width=8, fig.height=6}
+with(
+    steps_per_day,
+    hist(
+        sum_steps,
+        xlab = "Total no of steps each day",
+        main = "Histogram of Total Number of steps taken each day",
+        col = "white",
+        border = "black",
+        labels = TRUE
+    )
+)
+```
+
+To calculate the mean and median, I use dplyr, with the summary function
+
+```{r}
+steps_per_day %>%
+    filter(complete.cases(.)) %>%
+    summarize(mean = mean(sum_steps), median = median(sum_steps))
+```
+
+Mean Number of Steps Taken per Day = 1.076618910\^{4} Median Number of Steps Taken per Day = 10765
 
 ## What is the average daily activity pattern?
 
+Make a time-series plot of the 5-minute interval and the average number of steps taken, averaged acoss all days.
 
+```{r}
+mean_interval <- dt %>% group_by(interval) %>%
+    na.omit() %>%
+    summarize(avg_step = mean(steps), .groups = 'drop')
+```
+
+```{r timeseries1, fig.width=8, fig.height=6}
+ggplot(mean_interval, aes(interval, avg_step)) +
+    geom_line() +
+    labs(x = "Intervals", y = "Average steps taken") +
+    ggtitle("Time series of Average steps taken during 5 minute interval") +
+    theme_bw()
+```
+
+Which 5-minute interval across all days contain the maximum number of steps
+
+```{r}
+mean_interval %>% filter(avg_step == max(avg_step))
+```
+
+the 5 minute interval number 835 contains the maximum number of steps
 
 ## Imputing missing values
 
+Calculate and report the total number of missing values in the dataset.
 
+```{r}
+dt %>% summarise_all(~sum(is.na(.)))
+```
+
+To fill in the missing values, I will use a for loop to loop through all the rows and for the rows with missing values, an index variable will be created to store the indices that match the intervals in the mean_interval data table, then I assign the average step values to the missing ones in a new data table
+
+```{r}
+# create new data table
+complete_dt <- dt
+
+# loop over all rows
+for (i in 1:nrow(complete_dt)) {
+    if(is.na(complete_dt$steps[i])) {
+        # match indexes of new datatable interval with mean_interval
+        index <- which(complete_dt$interval[i] == mean_interval$interval)
+        # assign average step to NA at ith row of step column
+        complete_dt$steps[i] <- mean_interval[index,]$avg_step
+    }
+}
+```
+
+With the new data,I create a new histogram.
+
+```{r}
+# perform necessary transformation
+hist_complete_dt <- complete_dt %>%
+    group_by(date) %>%
+    summarize(sum_steps = sum(steps), .groups = 'drop')
+
+```
+
+```{r histogram2, fig.width=8, fig.height=6}
+# plot histogram
+with(
+    hist_complete_dt,
+    hist(
+        sum_steps,
+        xlab = "Total no of steps each day",
+        main = "Histogram of Total Number of steps taken each day",
+        col = "white",
+        border = "black",
+        labels = TRUE
+    )
+)
+```
+
+The mean and median.
+
+```{r}
+hist_complete_dt %>%
+    summarize(mean = mean(sum_steps), median = median(sum_steps))
+```
+
+There is a difference of 0 in the mean steps of the two dataset. There is a difference of -1.076381110\^{4} in the median steps of the two dataset. There is a difference of 8.612950910\^{4} in the total steps of the two dataset.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+Create a new factor variable in the dataset with two levels - "weekend" and "weekday"
+
+```{r}
+library(chron) 
+w_complete_dt <- complete_dt %>%
+    mutate(date = chron::is.weekend(date))
+```
+
+Make a panel plot containing a time-series plot of the 5-minute interval and the average number of steps taken across all weekdays or weekends
+
+```{r}
+# transforming data for plotting
+w_timeseries <- w_complete_dt %>% group_by(date, interval) %>%
+    summarize(avg_step = mean(steps), .groups = 'drop')
+
+# changing labels for more appropriate names
+labels <- as_labeller(c(`TRUE` = "Weekend", `FALSE` = "Weekday"))
+
+```
+
+```{r timeseries2, fig.width=8, fig.height=6}
+# plot time series with ggplot
+ggplot(w_timeseries, aes(interval, avg_step, color=date)) +
+    geom_line() +
+    facet_wrap(~date, nrow=2, labeller= labels)+
+    labs(x = "Intervals", y = "Average steps taken") +
+    ggtitle("Time series of Average steps taken Weekday vs Weekend") +
+    theme_bw()
+```
